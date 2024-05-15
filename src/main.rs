@@ -6,11 +6,11 @@ use ratatui::{
 };
 use std::io;
 
+mod termsweeper;
 mod tui;
 
 static LAZY_REDRAW: bool = true;
-static TITLE_SCREEN_CONTENT: &str =
-    include_str!("../assets/title.in");
+static TITLE_SCREEN_CONTENT: &str = include_str!("../assets/title.in");
 fn main() -> io::Result<()> {
     let mut terminal = tui::init()?;
     let app_result = TermsweeperApp::new().run(&mut terminal);
@@ -18,21 +18,18 @@ fn main() -> io::Result<()> {
     app_result
 }
 
-enum TermsweeperAppState {
-    TitleScreen,
-    GameScreen,
-}
-
 struct TermsweeperApp {
-    state: TermsweeperAppState,
     exit: bool,
+    app_state: termsweeper::AppState,
+    game: Option<termsweeper::Termsweeper>,
 }
 
 impl TermsweeperApp {
     fn new() -> TermsweeperApp {
         TermsweeperApp {
-            state: TermsweeperAppState::TitleScreen,
             exit: false,
+            app_state: termsweeper::AppState::TitleScreen,
+            game: None,
         }
     }
     fn run(&mut self, terminal: &mut tui::Tui) -> io::Result<()> {
@@ -67,9 +64,9 @@ impl TermsweeperApp {
         loop {
             if event::poll(std::time::Duration::from_millis(16))? {
                 if let event::Event::Key(key) = event::read()? {
-                    let event_handled = match self.state {
-                        TermsweeperAppState::TitleScreen => self.handle_title_screen(key),
-                        TermsweeperAppState::GameScreen => self.handle_game_screen(key),
+                    let event_handled = match self.app_state {
+                        termsweeper::AppState::TitleScreen => self.handle_title_screen(key),
+                        termsweeper::AppState::GameScreen => self.handle_game_screen(key),
                     };
                     if event_handled
                         || (key.kind == KeyEventKind::Press && key.code == KeyCode::F(5))
@@ -112,7 +109,10 @@ impl TermsweeperApp {
     fn handle_title_screen(&mut self, key: KeyEvent) -> bool {
         if key.kind == KeyEventKind::Press {
             match key.code {
-                KeyCode::Char('n') => self.state = TermsweeperAppState::GameScreen,
+                KeyCode::Char('n') => {
+                    self.app_state = termsweeper::AppState::GameScreen;
+                    self.game = Some(termsweeper::Termsweeper::default());
+                }
                 KeyCode::Char('q') => self.exit = true,
                 _ => return false,
             }
@@ -121,40 +121,21 @@ impl TermsweeperApp {
         false
     }
 
-    fn render_game_screen(&self, area: Rect, buf: &mut Buffer) {
-        let top = Title::from(" Termsweeper - Game ".green().bold());
-        let bottom = Title::from(Line::from(vec![
-            " Exit current game".into(),
-            "<E> ".green().bold(),
-            "Quit".into(),
-            "<Q> ".green().bold(),
-        ]));
-
-        let block = Block::default()
-            .title(top.alignment(Alignment::Center))
-            .title(
-                bottom
-                    .alignment(Alignment::Center)
-                    .position(Position::Bottom),
-            )
-            .borders(Borders::ALL)
-            .border_set(border::THICK);
-        Paragraph::new("Not implemented yet")
-            .centered()
-            .block(block)
-            .render(area, buf);
-    }
-
     fn handle_game_screen(&mut self, key: KeyEvent) -> bool {
+        let handled = match &mut self.game {
+            Some(game_state) => game_state.handle_event(key),
+            _ => false,
+        };
+        if handled {
+            return handled;
+        }
         if key.kind == KeyEventKind::Press {
             match key.code {
                 KeyCode::Char('q') => {
-                    // TODO - trigger are you sure popup
                     self.exit = true;
                 }
                 KeyCode::Char('e') => {
-                    // TODO - trigger are you sure popup
-                    self.exit = true;
+                    self.app_state = termsweeper::AppState::TitleScreen;
                 }
                 _ => return false,
             }
@@ -166,9 +147,14 @@ impl TermsweeperApp {
 
 impl Widget for &TermsweeperApp {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        match self.state {
-            TermsweeperAppState::TitleScreen => self.render_title_screen(area, buf),
-            TermsweeperAppState::GameScreen => self.render_game_screen(area, buf),
+        match self.app_state {
+            termsweeper::AppState::TitleScreen => self.render_title_screen(area, buf),
+            termsweeper::AppState::GameScreen => {
+                match &self.game {
+                    Some(game) => game.render_game_screen(area, buf),
+                    None => (),
+                }
+            }
         }
     }
 }
